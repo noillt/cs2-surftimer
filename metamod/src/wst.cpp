@@ -19,6 +19,12 @@
 
 #include <steam/steam_gameserver.h>
 #include <irecipientfilter.h>
+#include <vscript/ivscript.h>
+
+extern "C" {
+#define LUA_BUILD_AS_DLL
+#include "lua.h"
+}
 
 
 namespace fs = std::filesystem;
@@ -286,6 +292,72 @@ WSTConfig WSTPlugin::LoadOrCreateConfig() {
     return config;
 }
 
+SH_DECL_HOOK1(IScriptManager, CreateVM, SH_NOATTRIB, 0, IScriptVM*, ScriptLanguage_t);
+
+#define DEFINE_LUA_FUNC_PTR(func_name, ...) \
+    typedef void (*wst_##func_name)(__VA_ARGS__); \
+    wst_##func_name wstfn_##func_name = nullptr;
+
+DEFINE_LUA_FUNC_PTR(lua_getfield, void *L, int idx, const char *k)
+DEFINE_LUA_FUNC_PTR(lua_setfield, void *L, int idx, const char *k)
+DEFINE_LUA_FUNC_PTR(lua_pushstring, void *L, const char *s)
+DEFINE_LUA_FUNC_PTR(lua_call, void *L, int nargs, int nresults)
+DEFINE_LUA_FUNC_PTR(lua_pushcclosure, void *L, lua_CFunction fn, int n)
+DEFINE_LUA_FUNC_PTR(lua_settable, void *L, int idx)
+
+
+class IScriptVMPartA
+{
+public:
+    virtual void DeleteThis() = 0; // ?
+    virtual bool Init() = 0;
+    virtual bool ConnectDebugger() = 0;
+    virtual void DisconnectDebugger() = 0;
+
+    virtual ScriptLanguage_t GetLanguage() = 0;
+    virtual const char* GetLanguageName() = 0;
+
+    virtual void* GetInternalVM() = 0;
+
+    // TODO : more
+};
+
+static int HelloWorldFromCPP(lua_State* L) {
+    Message("Hello World from CPP\n");
+
+    return 0;
+}
+
+#define wst_lua_register(L,n,f) (wst_lua_pushcfunction(L, (f)), wst_lua_setglobal(L, (n)))
+#define wst_lua_pushcfunction(L,f)	wstfn_lua_pushcclosure(L, (f), 0)
+#define wst_lua_setglobal(L,s)	wstfn_lua_setfield(L, LUA_GLOBALSINDEX, (s))
+
+IScriptVM* WSTPlugin::Hook_CreateVM(ScriptLanguage_t language) {
+    Message("Hook_CreateVM\n");
+    auto vm = SH_CALL(Framework::ScriptManager(), &IScriptManager::CreateVM)(language);
+    auto vmPartA = (IScriptVMPartA *)vm;
+
+    lua_State *L = (lua_State *)vmPartA->GetInternalVM();
+
+
+    wstfn_lua_getfield(L, LUA_GLOBALSINDEX, "print");
+    wstfn_lua_pushstring(L, "Hello World from Lua 27");
+    wstfn_lua_call(L, 1, 0);
+
+    // doesn't work
+    // wst_lua_register(L, "test", HelloWorldFromCPP);
+
+    // can't replace "print"
+    // wstfn_lua_pushcclosure(L, HelloWorldFromCPP, 1);
+    // wstfn_lua_setfield(L, LUA_GLOBALSINDEX, "print");
+
+
+    wstfn_lua_pushcclosure(L, HelloWorldFromCPP, 0);
+    wstfn_lua_setfield(L, LUA_GLOBALSINDEX, "hello_world");
+
+    return vm;
+}
+
 bool WSTPlugin::Load(PluginId id, ISmmAPI *ismm, char *error, size_t maxlen, bool late) {
     PLUGIN_SAVEVARS();
 
@@ -300,6 +372,9 @@ bool WSTPlugin::Load(PluginId id, ISmmAPI *ismm, char *error, size_t maxlen, boo
     GET_V_IFACE_CURRENT(GetEngineFactory, Framework::EngineServer(), IVEngineServer2, INTERFACEVERSION_VENGINESERVER);
     GET_V_IFACE_CURRENT(GetEngineFactory, Framework::GameResourceService(), IGameResourceServiceServer, GAMERESOURCESERVICESERVER_INTERFACE_VERSION);
 
+    GET_V_IFACE_ANY(GetEngineFactory, Framework::ScriptManager(), IScriptManager, VSCRIPT_INTERFACE_VERSION);
+
+
     Framework::GameEventManager() = (IGameEventManager2 *) (CALL_VIRTUAL(uintptr_t, 91, Framework::Source2Server()) -
                                                             8);
 
@@ -308,6 +383,10 @@ bool WSTPlugin::Load(PluginId id, ISmmAPI *ismm, char *error, size_t maxlen, boo
     SH_ADD_HOOK_MEMFUNC(IServerGameDLL, GameServerSteamAPIDeactivated, Framework::Source2Server(), this,
                         &WSTPlugin::Hook_GameServerSteamAPIDeactivated, false);
 
+    SH_ADD_HOOK_MEMFUNC(IScriptManager, CreateVM, Framework::ScriptManager(), this, &WSTPlugin::Hook_CreateVM, false);
+
+
+
 
     WSTConfig config = LoadOrCreateConfig();
 
@@ -315,6 +394,17 @@ bool WSTPlugin::Load(PluginId id, ISmmAPI *ismm, char *error, size_t maxlen, boo
 #ifdef _WIN32
     ClientPrintFn = (ClientPrint) Framework::ServerModule().FindSignature(
             R"(\x48\x85\xC9\x0F\x84\x2A\x2A\x2A\x2A\x48\x8B\xC4\x48\x89\x58\x18)");
+
+    wstfn_lua_getfield = (wst_lua_getfield) Framework::VScriptModule().FindSignature(
+            R"(\x48\x89\x5C\x24\x10\x57\x48\x83\xEC\x20\x4D\x8B\xD0)");
+    wstfn_lua_setfield = (wst_lua_setfield) Framework::VScriptModule().FindSignature(R"(\x48\x89\x5C\x24\x08\x57\x48\x83\xEC\x20\x4D\x8B\xD0\x48\x8B\xD9)");
+
+    wstfn_lua_pushstring = (wst_lua_pushstring) Framework::VScriptModule().FindSignature(
+            R"(\x48\x89\x5C\x24\x08\x57\x48\x83\xEC\x20\x48\x8B\xFA\x48\x8B\xD9\x48\x85\xD2)");
+    wstfn_lua_call = (wst_lua_call) Framework::VScriptModule().FindSignature(
+            R"(\x48\x63\xC2\x4C\x8B\xD1)");
+    wstfn_lua_pushcclosure = (wst_lua_pushcclosure) Framework::VScriptModule().FindSignature(R"(\x48\x89\x5C\x24\x08\x48\x89\x74\x24\x10\x57\x48\x83\xEC\x20\x48\x8B\xD9\x49\x63\xF8)");
+    wstfn_lua_settable = (wst_lua_settable) Framework::VScriptModule().FindSignature(R"(\x40\x53\x48\x83\xEC\x20\x48\x8B\xD9\xE8\x2A\x2A\x2A\x2A\x4C\x8B\x43\x28\x48\x8B\xD0\x49\x83\xE8\x10)");
 #else
     ClientPrintFn = (ClientPrint)Framework::ServerModule().FindSignature(R"(\x55\x48\x89\xE5\x41\x57\x49\x89\xCF\x41\x56\x49\x89\xD6\x41\x55\x41\x89\xF5\x41\x54\x4C\x8D\xA5\xA0\xFE\xFF\xFF)");
 #endif

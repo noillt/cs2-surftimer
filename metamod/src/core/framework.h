@@ -5,6 +5,7 @@
 #include "igameevents.h"
 #include "module.h"
 #include "schemasystem.h"
+#include "vscript/ivscript.h"
 
 
 #pragma once
@@ -48,10 +49,20 @@ public:
         return wst_GameResourceService;
     }
 
+    static IScriptManager*& ScriptManager() {
+        static IScriptManager* wst_ScriptManager = nullptr;
+        return wst_ScriptManager;
+    }
+
     // ServerCModule
     static CModule ServerModule() {
         static CModule wst_ServerCModule(GAMEBIN, "server");
         return wst_ServerCModule;
+    }
+
+    static CModule VScriptModule() {
+        static CModule wst_VScriptCModule(ROOTBIN, "vscript");
+        return wst_VScriptCModule;
     }
 
     static ISteamHTTP*& SteamHTTP() {

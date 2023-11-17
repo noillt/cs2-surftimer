@@ -38,6 +38,8 @@ add_executable(wst
         src/core/common.h
         src/core/dlinfo.cpp
         src/core/dlinfo.h
+        src/lua.h
+        src/luaconf.h
 )
 
 # Dummy target to integrate custom build script

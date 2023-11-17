@@ -4,6 +4,8 @@
 #include <iserver.h>
 #include "igameevents.h"
 #include "steam/isteamhttp.h"
+#include "vscript/ivscript.h"
+
 
 struct WSTConfig {
     bool detourHostSay;
@@ -33,6 +35,8 @@ public:
     void Hook_GameServerSteamAPIDeactivated();
 
     WSTConfig LoadOrCreateConfig();
+
+    IScriptVM *Hook_CreateVM(ScriptLanguage_t language);
 };
 
 extern WSTPlugin g_WSTPlugin;

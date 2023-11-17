@@ -8,6 +8,7 @@
 #include "strtools.h"
 #include "metamod_oslink.h"
 #include "dlinfo.h"
+#include "common.h"
 
 
 #ifdef _WIN32
@@ -67,6 +68,9 @@ public:
                     return_addr = (void *)(pMemory + i);
             }
         }
+
+        if (!return_addr)
+            Message("Could not find signature in %s\n", m_pszModule);
 
         return return_addr;
     }
