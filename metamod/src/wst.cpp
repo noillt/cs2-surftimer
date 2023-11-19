@@ -305,6 +305,9 @@ DEFINE_LUA_FUNC_PTR(lua_call, void *L, int nargs, int nresults)
 DEFINE_LUA_FUNC_PTR(lua_pushcclosure, void *L, lua_CFunction fn, int n)
 DEFINE_LUA_FUNC_PTR(lua_settable, void *L, int idx)
 
+//
+DEFINE_LUA_FUNC_PTR(luaJIT_setmode, void *L, int idx, int mode)
+
 
 class IScriptVMPartA
 {
@@ -331,18 +334,61 @@ static int HelloWorldFromCPP(lua_State* L) {
 #define wst_lua_register(L,n,f) (wst_lua_pushcfunction(L, (f)), wst_lua_setglobal(L, (n)))
 #define wst_lua_pushcfunction(L,f)	wstfn_lua_pushcclosure(L, (f), 0)
 #define wst_lua_setglobal(L,s)	wstfn_lua_setfield(L, LUA_GLOBALSINDEX, (s))
+#define wst_lua_getglobal(L,s)	wstfn_lua_getfield(L, LUA_GLOBALSINDEX, (s))
+
+IScriptVMPartA* g_ScriptVMPtr = nullptr;
+
+CON_COMMAND_F(wst_mm_test, "VScriptTest", FCVAR_GAMEDLL | FCVAR_HIDDEN) {
+    // wst_mm_test
+    if (g_ScriptVMPtr == nullptr) {
+        Message("ScriptVMPtr is null\n");
+        return;
+    }
+
+    lua_State *L = (lua_State *)g_ScriptVMPtr->GetInternalVM();
+
+    Message("lua_State ptr addr: %p\n", (void *)L);
+
+//    // init?
+//    lua_State *L = (lua_State *)g_ScriptVMPtr->GetInternalVM();
+//
+//    wst_lua_getglobal(L, "package");
+//
+//    wstfn_lua_pushstring(L, "wst");
+//    wstfn_lua_pushstring(L, "lua");
+//    wstfn_lua_settable(L, -3);
+
+}
 
 IScriptVM* WSTPlugin::Hook_CreateVM(ScriptLanguage_t language) {
     Message("Hook_CreateVM\n");
     auto vm = SH_CALL(Framework::ScriptManager(), &IScriptManager::CreateVM)(language);
-    auto vmPartA = (IScriptVMPartA *)vm;
+    IScriptVMPartA* vmPartA = (IScriptVMPartA *)vm;
+    g_ScriptVMPtr = vmPartA;
+
 
     lua_State *L = (lua_State *)vmPartA->GetInternalVM();
 
+    Message("lua_State ptr addr: %p\n", (void *)L);
 
+    // debug.registry()["wst_var"] = "wst_val"
+    wstfn_lua_pushstring(L, "wst_var");
+    wstfn_lua_pushstring(L, "Hello DirtyDan From Lua");
+    wstfn_lua_settable(L, LUA_REGISTRYINDEX);
+
+    // print(debug.registry()["wst_var"])
     wstfn_lua_getfield(L, LUA_GLOBALSINDEX, "print");
-    wstfn_lua_pushstring(L, "Hello World from Lua 27");
+    wstfn_lua_getfield(L, LUA_REGISTRYINDEX, "wst_var");
     wstfn_lua_call(L, 1, 0);
+
+
+
+
+
+//
+//    wstfn_lua_getfield(L, LUA_GLOBALSINDEX, "print");
+//    wstfn_lua_getfield(L, LUA_GLOBALSINDEX, "x");
+//    wstfn_lua_call(L, 1, 0);
 
     // doesn't work
     // wst_lua_register(L, "test", HelloWorldFromCPP);
@@ -351,9 +397,9 @@ IScriptVM* WSTPlugin::Hook_CreateVM(ScriptLanguage_t language) {
     // wstfn_lua_pushcclosure(L, HelloWorldFromCPP, 1);
     // wstfn_lua_setfield(L, LUA_GLOBALSINDEX, "print");
 
-
-    wstfn_lua_pushcclosure(L, HelloWorldFromCPP, 0);
-    wstfn_lua_setfield(L, LUA_GLOBALSINDEX, "hello_world");
+//
+//    wstfn_lua_pushcclosure(L, HelloWorldFromCPP, 0);
+//    wstfn_lua_setfield(L, LUA_GLOBALSINDEX, "hello_world");
 
     return vm;
 }
@@ -405,6 +451,8 @@ bool WSTPlugin::Load(PluginId id, ISmmAPI *ismm, char *error, size_t maxlen, boo
             R"(\x48\x63\xC2\x4C\x8B\xD1)");
     wstfn_lua_pushcclosure = (wst_lua_pushcclosure) Framework::VScriptModule().FindSignature(R"(\x48\x89\x5C\x24\x08\x48\x89\x74\x24\x10\x57\x48\x83\xEC\x20\x48\x8B\xD9\x49\x63\xF8)");
     wstfn_lua_settable = (wst_lua_settable) Framework::VScriptModule().FindSignature(R"(\x40\x53\x48\x83\xEC\x20\x48\x8B\xD9\xE8\x2A\x2A\x2A\x2A\x4C\x8B\x43\x28\x48\x8B\xD0\x49\x83\xE8\x10)");
+
+    wstfn_luaJIT_setmode = (wst_luaJIT_setmode) Framework::VScriptModule().FindSignature(R"(\x48\x89\x6C\x24\x10\x48\x89\x74\x24\x18\x57\x48\x83\xEC\x20\x48\x8B\x79\x10\x4C\x8B\xC9)");
 #else
     ClientPrintFn = (ClientPrint)Framework::ServerModule().FindSignature(R"(\x55\x48\x89\xE5\x41\x57\x49\x89\xCF\x41\x56\x49\x89\xD6\x41\x55\x41\x89\xF5\x41\x54\x4C\x8D\xA5\xA0\xFE\xFF\xFF)");
 #endif
